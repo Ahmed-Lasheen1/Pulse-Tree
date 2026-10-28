@@ -20,9 +20,16 @@ import { LeaderboardIcon, ClockIcon } from '@/shared/icons/tool-icons'
 import { Lock, User, Star, ClipboardList, Pencil, Award } from 'lucide-react'
 import { glassHoverTint } from '@/shared/theme/liquidGlass'
 import { MIN_PASSWORD_LENGTH } from '@/features/account/passwordRules'
+import PillTabs from '@/shared/ui/controls/PillTabs'
 
 const MAX_NAME_LENGTH = 60
 const OFFLINE_MESSAGE = "❌ You're offline — try again when you're connected"
+
+// Tabs shown at the top of the profile page.
+const PROFILE_TABS = [
+  { id: 'profile', label: 'Profile', Icon: User },
+  { id: 'leaderboard', label: 'Leaderboard', Icon: LeaderboardIcon },
+] as const
 
 interface Profile {
   id: string
@@ -223,26 +230,7 @@ export default function Profile({ dark }: { dark: boolean }) {
         {loadError && <div style={{ marginBottom: 16 }}><ErrorBanner message="Couldn't load some data — check your connection." /></div>}
         {savedCopy && <OfflineNote dark={dark} message="You're offline — showing your last saved profile and leaderboard." />}
 
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginBottom: 24 }}>
-          {(['profile', 'leaderboard'] as const).map(t => {
-            const active = tab === t
-            const color = active ? (dark ? '#ffffff' : '#062B50') : pt.sub
-            return (
-              <PulseGlassRow
-                key={t} dark={dark} radius={999} active={active}
-                activeTint={`${pt.cobalt}26`} hoverTint={hoverTint}
-                onClick={() => setTab(t)} role="button" tabIndex={0}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(t) } }}
-                style={{ textAlign: 'center', width: 150 }}
-              >
-                <div style={{ padding: '11px 0', ...pulseType.button, fontSize: 14, color, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
-                  {t === 'profile' ? <User size={15} color={color} /> : <LeaderboardIcon color={color} size={15} />}
-                  {t === 'profile' ? 'Profile' : 'Leaderboard'}
-                </div>
-              </PulseGlassRow>
-            )
-          })}
-        </div>
+        <PillTabs dark={dark} tabs={PROFILE_TABS} active={tab} onSelect={setTab} marginBottom={24} />
 
         {tab === 'profile' && (
           <>

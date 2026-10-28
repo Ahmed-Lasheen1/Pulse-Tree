@@ -30,6 +30,7 @@ import { optionLabels } from '@/features/practice/mcqShared'
 import { MCQ_ACCENT } from '@/shared/theme/accents'
 import { glassHoverTint } from '@/shared/theme/liquidGlass'
 import { SECTION_GAP } from '@/shared/theme/layout'
+import PillTabs from '@/shared/ui/controls/PillTabs'
 
 const ITEM_GAP = 16
 
@@ -321,25 +322,7 @@ export default function Review({ dark }: { dark: boolean }) {
 
       <PageIntro dark={dark} emoji={<BookIcon color={ON_GRADIENT_TOP.primary} size={40} />} title="Review" subtitle="Your exam history, mistakes, and flagged questions" paddingBottom={16} />
 
-      <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginBottom: SECTION_GAP }}>
-        {reviewTabs.map(t => {
-          const active = tab === t.id
-          const color = active ? (dark ? '#ffffff' : '#062B50') : pt.sub
-          return (
-            <PulseGlassRow
-              key={t.id} dark={dark} radius={999} active={active}
-              activeTint={`${pt.cobalt}26`} hoverTint={hoverTint}
-              onClick={() => setTab(t.id)} role="button" tabIndex={0}
-              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(t.id) } }}
-              style={{ textAlign: 'center', width: 150 }}
-            >
-              <div style={{ padding: '11px 0', ...pulseType.button, fontSize: 14, color, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
-                <t.Icon color={color} size={15} /> {t.label}
-              </div>
-            </PulseGlassRow>
-          )
-        })}
-      </div>
+      <PillTabs dark={dark} tabs={reviewTabs} active={tab} onSelect={setTab} marginBottom={SECTION_GAP} />
 
       {loadError && <ErrorBanner />}
       {savedCopy && !loading && <OfflineNote dark={dark} message="You're offline. Showing your saved history. Exams you take now are kept on this device and sync when you reconnect." />}
