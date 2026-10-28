@@ -1,0 +1,99 @@
+import { getAdminClient, sendToSubscriptions, requireCronSecret, fetchAllRows, safeHandler } from '../_lib/webpush.js'
+
+const EGYPT_TIMEZONE = 'Africa/Cairo'
+const REMINDER_WINDOW_HOURS = 6
+const MAX_OVERDUE_HOURS = 24
+
+const cairoTimeZoneFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: EGYPT_TIMEZONE,
+  timeZoneName: 'longOffset'
+})
+
+function cairoOffsetMs(instant) {
+  const offset = cairoTimeZoneFormatter
+    .formatToParts(instant)
+    .find((part) => part.type === 'timeZoneName')?.value
+  const match = offset?.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/)
+  if (!match) throw new Error(`Could not determine ${EGYPT_TIMEZONE} offset`)
+  const [, sign, hours, minutes = '0'] = match
+  const milliseconds = (Number(hours) * 60 + Number(minutes)) * 60 * 1000
+  return sign === '+' ? milliseconds : -milliseconds
+}
+
+function deadlineInstant(dateStr) {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  const wallClockTime = Date.UTC(year, month - 1, day, 23, 59, 59)
+  let timestamp = wallClockTime
+  for (let i = 0; i < 2; i += 1) {
+    timestamp = wallClockTime - cairoOffsetMs(new Date(timestamp))
+  }
+  return new Date(timestamp)
+}
+
+async function handler(req, res) {
+  if (!requireCronSecret(req, res)) return
+
+  const supabase = getAdminClient('checklist-reminders')
+  if (!supabase) return res.status(500).json({ error: 'Server misconfiguration (missing SUPABASE_URL)' })
+
+  const { data: tasks, error: tasksError } = await fetchAllRows(() =>
+    supabase
+      .from('user_checklist')
+      .select('id, user_id, text, deadline, module_id, modules(name)')
+      .eq('done', false)
+      .eq('reminder_sent', false)
+      .not('deadline', 'is', null)
+      .not('user_id', 'is', null)
+      .order('id')
+  )
+
+  if (tasksError) return res.status(500).json({ error: tasksError.message })
+  if (!tasks || tasks.length === 0) return res.status(200).json({ sent: 0, reason: 'no eligible tasks' })
+
+  const now = Date.now()
+  const due = []
+  const staleIds = []
+
+  tasks.forEach((t) => {
+    const hoursLeft = (deadlineInstant(t.deadline).getTime() - now) / (1000 * 60 * 60)
+    if (hoursLeft <= REMINDER_WINDOW_HOURS && hoursLeft >= -MAX_OVERDUE_HOURS) due.push(t)
+    else if (hoursLeft < -MAX_OVERDUE_HOURS) staleIds.push(t.id)
+  })
+
+  if (staleIds.length > 0) {
+    await supabase.from('user_checklist').update({ reminder_sent: true }).in('id', staleIds)
+  }
+  if (due.length === 0) return res.status(200).json({ sent: 0, reason: 'nothing due within the reminder window' })
+
+  const userIds = [...new Set(due.map((t) => t.user_id))]
+  const { data: allSubs, error: subsError } = await fetchAllRows(() =>
+    supabase.from('push_subscriptions').select('*').in('user_id', userIds).order('id')
+  )
+  if (subsError) return res.status(500).json({ error: 'push_subscriptions query: ' + subsError.message })
+
+  const subsByUser = {}
+  ;(allSubs || []).forEach((s) => { (subsByUser[s.user_id] ||= []).push(s) })
+
+  let sent = 0
+  const remindedTaskIds = []
+
+  await Promise.all(due.map(async (task) => {
+    const subs = subsByUser[task.user_id]
+
+    if (!subs || subs.length === 0) { remindedTaskIds.push(task.id); return }
+
+    const moduleName = task.modules?.name ? `${task.modules.name} — ` : ''
+    const body = `${moduleName}"${task.text}" is due soon and still not checked off. ⏰`
+    const { sent: userSent } = await sendToSubscriptions(supabase, subs, { title: '🎯 Checklist Reminder', body, url: '/checklist' })
+
+    if (userSent > 0) { sent += userSent; remindedTaskIds.push(task.id) }
+  }))
+
+  if (remindedTaskIds.length > 0) {
+    await supabase.from('user_checklist').update({ reminder_sent: true }).in('id', remindedTaskIds)
+  }
+
+  return res.status(200).json({ sent, tasksChecked: due.length })
+}
+
+export default safeHandler(handler)
